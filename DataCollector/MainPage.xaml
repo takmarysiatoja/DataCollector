@@ -1,0 +1,85 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:local="clr-namespace:DataCollector"
+             x:Class="DataCollector.MainPage"
+             BackgroundColor="#0D1117"
+             Title="Forklift Data Collector">
+    <ScrollView>
+        <VerticalStackLayout Padding="16" Spacing="12">
+            <Frame BackgroundColor="#161B22" BorderColor="#30363D" CornerRadius="10" Padding="12">
+                <HorizontalStackLayout Spacing="10">
+                    <Ellipse x:Name="StatusDot" Fill="#3FB950" WidthRequest="12" HeightRequest="12" VerticalOptions="Center"/>
+                    <Label x:Name="StatusLabel" Text="Gotowy do pomiaru" TextColor="#8B949E" FontSize="13" VerticalOptions="Center"/>
+                </HorizontalStackLayout>
+            </Frame>
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                <Button x:Name="BtnStart" Grid.Column="0" Text="START"
+                        BackgroundColor="#238636" TextColor="White"
+                        CornerRadius="8" FontAttributes="Bold"
+                        Clicked="OnStartClicked"/>
+                <Button x:Name="BtnStop" Grid.Column="1" Text="STOP"
+                        BackgroundColor="#21262D" TextColor="#8B949E"
+                        BorderColor="#30363D" BorderWidth="1"
+                        CornerRadius="8" FontAttributes="Bold"
+                        IsEnabled="False"
+                        Clicked="OnStopClicked"/>
+            </Grid>
+            <Frame BackgroundColor="#161B22" BorderColor="#30363D" CornerRadius="10" Padding="14">
+                <VerticalStackLayout Spacing="8">
+                    <Label Text="AKCELEROMETR (co 2 s)" TextColor="#58A6FF" FontSize="12" FontAttributes="Bold"/>
+                    <Grid ColumnDefinitions="*,*,*" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="4">
+                        <Label Grid.Row="0" Grid.Column="0" Text="X" TextColor="#8B949E" FontSize="11" HorizontalTextAlignment="Center"/>
+                        <Label Grid.Row="0" Grid.Column="1" Text="Y" TextColor="#8B949E" FontSize="11" HorizontalTextAlignment="Center"/>
+                        <Label Grid.Row="0" Grid.Column="2" Text="Z" TextColor="#8B949E" FontSize="11" HorizontalTextAlignment="Center"/>
+                        <Frame Grid.Row="1" Grid.Column="0" BackgroundColor="#0D1117" BorderColor="#30363D" CornerRadius="6" Padding="6,4">
+                            <Label x:Name="LblX" Text="--" TextColor="#3FB950" FontSize="18" FontAttributes="Bold" HorizontalTextAlignment="Center"/>
+                        </Frame>
+                        <Frame Grid.Row="1" Grid.Column="1" BackgroundColor="#0D1117" BorderColor="#30363D" CornerRadius="6" Padding="6,4">
+                            <Label x:Name="LblY" Text="--" TextColor="#3FB950" FontSize="18" FontAttributes="Bold" HorizontalTextAlignment="Center"/>
+                        </Frame>
+                        <Frame Grid.Row="1" Grid.Column="2" BackgroundColor="#0D1117" BorderColor="#30363D" CornerRadius="6" Padding="6,4">
+                            <Label x:Name="LblZ" Text="--" TextColor="#3FB950" FontSize="18" FontAttributes="Bold" HorizontalTextAlignment="Center"/>
+                        </Frame>
+                    </Grid>
+                    <Label x:Name="LblAccelTime" Text="ostatni pomiar: --" TextColor="#484F58" FontSize="11"/>
+                </VerticalStackLayout>
+            </Frame>
+            <Frame BackgroundColor="#161B22" BorderColor="#30363D" CornerRadius="10" Padding="14">
+                <VerticalStackLayout Spacing="8">
+                    <HorizontalStackLayout Spacing="8">
+                        <Label Text="WI-FI SCAN (co 30 s)" TextColor="#58A6FF" FontSize="12" FontAttributes="Bold" VerticalOptions="Center"/>
+                        <Label x:Name="LblWifiTime" Text="--" TextColor="#484F58" FontSize="11" VerticalOptions="Center"/>
+                    </HorizontalStackLayout>
+                    <CollectionView x:Name="WifiList" SelectionMode="None" HeightRequest="200">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate x:DataType="local:WifiEntry">
+                                <Grid ColumnDefinitions="*,Auto" Padding="0,4">
+                                    <Label Grid.Column="0" Text="{Binding Bssid}" TextColor="#E6EDF3" FontSize="13"/>
+                                    <Label Grid.Column="1" Text="{Binding RssiStr}" TextColor="{Binding RssiColor}" FontSize="13" FontAttributes="Bold"/>
+                                </Grid>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </VerticalStackLayout>
+            </Frame>
+            <Frame BackgroundColor="#161B22" BorderColor="#30363D" CornerRadius="10" Padding="14">
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="LOG CSV" TextColor="#58A6FF" FontSize="12" FontAttributes="Bold"/>
+                    <Label x:Name="LblLogPath" Text="--" TextColor="#484F58" FontSize="10"/>
+                    <Label x:Name="LblLogCount" Text="Zapisanych wpisow: 0" TextColor="#8B949E" FontSize="12"/>
+                    <Button Text="Kopiuj sciezke pliku"
+                            BackgroundColor="#21262D" TextColor="#8B949E"
+                            BorderColor="#30363D" BorderWidth="1"
+                            CornerRadius="8" FontSize="12"
+                            Clicked="OnCopyPathClicked"/>
+                    <Button Text="Udostepnij plik CSV"
+                            BackgroundColor="#21262D" TextColor="#8B949E"
+                            BorderColor="#30363D" BorderWidth="1"
+                            CornerRadius="8" FontSize="12"
+                            Clicked="OnShareCsvClicked"/>
+                </VerticalStackLayout>
+            </Frame>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>
