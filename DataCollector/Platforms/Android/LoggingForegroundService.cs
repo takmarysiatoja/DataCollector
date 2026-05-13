@@ -17,6 +17,7 @@ public class LoggingForegroundService : Service, ISensorEventListener
     public const string ActionStart = "DataCollector.action.START";
     public const string ActionStop = "DataCollector.action.STOP";
     private const int RmsWindow = 10;
+    private const int EmailIntervalMinutes = 1;
 
     private SensorManager _sensorManager;
     private Sensor _accelerometer;
@@ -24,6 +25,11 @@ public class LoggingForegroundService : Service, ISensorEventListener
     private System.Timers.Timer _accelTimer;
     private System.Timers.Timer _wifiTimer;
     private System.Timers.Timer _countdownTimer;
+    private System.Timers.Timer _emailTimer;
+    private readonly Queue<string> _pendingEmailFiles = new();
+    private readonly object _emailSync = new();
+    private readonly SemaphoreSlim _emailSemaphore = new(1, 1);
+    private EmailSender _emailSender;
     private double _lastRmsX, _lastRmsY, _lastRmsZ;
     private int _wifiCountdown = 30;
 
@@ -135,6 +141,10 @@ public class LoggingForegroundService : Service, ISensorEventListener
             _countdownTimer.Elapsed += (_, __) => SafeRun(UpdateCountdown);
             _countdownTimer.Start();
 
+            _emailTimer = new System.Timers.Timer(TimeSpan.FromMinutes(EmailIntervalMinutes));
+            _emailTimer.Elapsed += async (_, __) => await SafeRunAsync(SendEmailBatchAsync);
+            _emailTimer.Start();
+
             UpdateCountdown();
         }
         catch (Exception ex)
@@ -156,6 +166,18 @@ public class LoggingForegroundService : Service, ISensorEventListener
         }
     }
 
+    private async Task SafeRunAsync(Func<Task> action)
+    {
+        try
+        {
+            await action();
+        }
+        catch (Exception ex)
+        {
+            LoggingState.ReportStatus($"Blad serwisu: {ex.Message}");
+        }
+    }
+
     private void StopLogging()
     {
         _accelTimer?.Stop();
@@ -169,6 +191,10 @@ public class LoggingForegroundService : Service, ISensorEventListener
         _countdownTimer?.Stop();
         _countdownTimer?.Dispose();
         _countdownTimer = null;
+
+        _emailTimer?.Stop();
+        _emailTimer?.Dispose();
+        _emailTimer = null;
 
         if (_sensorManager != null)
         {
@@ -263,6 +289,66 @@ public class LoggingForegroundService : Service, ISensorEventListener
         catch (Exception ex)
         {
             LoggingState.ReportStatus($"Blad Wi-Fi: {ex.Message}");
+        }
+    }
+
+    private async Task SendEmailBatchAsync()
+    {
+        if (!EmailSettings.IsConfigured)
+        {
+            LoggingState.ReportStatus("Brak konfiguracji SMTP. Uzupelnij EmailSettings.");
+            return;
+        }
+
+        var rotated = LogStore.RotateLog();
+        if (!string.IsNullOrWhiteSpace(rotated))
+        {
+            lock (_emailSync)
+            {
+                _pendingEmailFiles.Enqueue(rotated);
+            }
+        }
+
+        await _emailSemaphore.WaitAsync();
+        try
+        {
+            _emailSender ??= new EmailSender();
+            while (true)
+            {
+                string next;
+                lock (_emailSync)
+                {
+                    if (_pendingEmailFiles.Count == 0) break;
+                    next = _pendingEmailFiles.Peek();
+                }
+
+                var success = await _emailSender.SendCsvAsync(next);
+                if (!success)
+                {
+                    LoggingState.ReportStatus("Nie udalo sie wyslac CSV. Sprobujemy ponownie pozniej.");
+                    break;
+                }
+
+                try
+                {
+                    File.Delete(next);
+                }
+                catch
+                {
+                    // ignore
+                }
+
+                lock (_emailSync)
+                {
+                    _pendingEmailFiles.Dequeue();
+                }
+
+                LoggingState.ReportStatus($"Wyslano log CSV: {Path.GetFileName(next)}");
+            }
+        }
+        finally
+        {
+            _emailSemaphore.Release();
         }
     }
 }

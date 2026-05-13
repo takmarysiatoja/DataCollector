@@ -44,13 +44,48 @@ public static class LogStore
         var line = $"{tsMs},{rmsX:F4},{rmsY:F4},{rmsZ:F4},{rawX:F4},{rawY:F4},{rawZ:F4},{type},{bssid},{rssi}\n";
         try
         {
-            File.AppendAllText(CsvPath, line);
-            var count = Interlocked.Increment(ref _logCount);
-            LogCountChanged?.Invoke(count);
+            lock (Sync)
+            {
+                File.AppendAllText(CsvPath, line);
+                var count = Interlocked.Increment(ref _logCount);
+                LogCountChanged?.Invoke(count);
+            }
         }
         catch
         {
             // ignore
+        }
+    }
+
+    public static string? RotateLog()
+    {
+        EnsureInitialized();
+
+        lock (Sync)
+        {
+            if (_logCount <= 0 || string.IsNullOrWhiteSpace(CsvPath) || !File.Exists(CsvPath))
+            {
+                return null;
+            }
+
+            var oldPath = CsvPath;
+            var folder = FileSystem.AppDataDirectory;
+            var ts = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            var newPath = Path.Combine(folder, $"forklift_{ts}.csv");
+
+            try
+            {
+                File.WriteAllText(newPath, "timestamp_ms,rms_x,rms_y,rms_z,raw_x,raw_y,raw_z,type,bssid,rssi\n");
+                CsvPath = newPath;
+                LogPathChanged?.Invoke(CsvPath);
+                Interlocked.Exchange(ref _logCount, 0);
+                LogCountChanged?.Invoke(0);
+                return oldPath;
+            }
+            catch
+            {
+                return null;
+            }
         }
     }
 }
