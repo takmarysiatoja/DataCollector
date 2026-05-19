@@ -16,13 +16,14 @@ public class LoggingForegroundService : Service, ISensorEventListener
     private const int NotificationId = 1001;
     public const string ActionStart = "DataCollector.action.START";
     public const string ActionStop = "DataCollector.action.STOP";
-    private const int RmsWindow = 10;
-    private const int EmailIntervalMinutes = 1;
+    private const int EmailIntervalMinutes = 10;
+    private const int AccelBatchMaxReportLatencyUs = 2_000_000;
+    private const long AccelBatchWindowNs = 2_000_000_000L;
 
     private SensorManager _sensorManager;
     private Sensor _accelerometer;
-    private readonly Queue<(double x, double y, double z)> _accBuf = new();
-    private System.Timers.Timer _accelTimer;
+    private readonly List<(double x, double y, double z, long timestampNs)> _accBuf = new();
+    private long? _accBatchStartNs;
     private System.Timers.Timer _wifiTimer;
     private System.Timers.Timer _countdownTimer;
     private System.Timers.Timer _emailTimer;
@@ -30,7 +31,10 @@ public class LoggingForegroundService : Service, ISensorEventListener
     private readonly object _emailSync = new();
     private readonly SemaphoreSlim _emailSemaphore = new(1, 1);
     private EmailSender _emailSender;
-    private double _lastRmsX, _lastRmsY, _lastRmsZ;
+    private double _lastMeanX, _lastVarX, _lastMinX, _lastMaxX;
+    private double _lastMeanY, _lastVarY, _lastMinY, _lastMaxY;
+    private double _lastMeanZ, _lastVarZ, _lastMinZ, _lastMaxZ;
+    private double _lastMeanA, _lastVarA, _lastMinA, _lastMaxA;
     private int _wifiCountdown = 30;
 
     public static bool IsRunning { get; private set; }
@@ -126,12 +130,8 @@ public class LoggingForegroundService : Service, ISensorEventListener
             _accelerometer = _sensorManager?.GetDefaultSensor(SensorType.Accelerometer);
             if (_accelerometer != null)
             {
-                _sensorManager.RegisterListener(this, _accelerometer, SensorDelay.Ui);
+                _sensorManager.RegisterListener(this, _accelerometer, SensorDelay.Game, AccelBatchMaxReportLatencyUs);
             }
-
-            _accelTimer = new System.Timers.Timer(TimeSpan.FromSeconds(2));
-            _accelTimer.Elapsed += (_, __) => SafeRun(OnAccelTick);
-            _accelTimer.Start();
 
             _wifiTimer = new System.Timers.Timer(TimeSpan.FromSeconds(30));
             _wifiTimer.Elapsed += (_, __) => SafeRun(DoWifiScan);
@@ -180,10 +180,6 @@ public class LoggingForegroundService : Service, ISensorEventListener
 
     private void StopLogging()
     {
-        _accelTimer?.Stop();
-        _accelTimer?.Dispose();
-        _accelTimer = null;
-
         _wifiTimer?.Stop();
         _wifiTimer?.Dispose();
         _wifiTimer = null;
@@ -209,33 +205,120 @@ public class LoggingForegroundService : Service, ISensorEventListener
     public void OnSensorChanged(SensorEvent e)
     {
         if (e?.Values == null || e.Values.Count < 3) return;
+
+        (double x, double y, double z, long timestampNs)[] batch = null;
         lock (_accBuf)
         {
-            _accBuf.Enqueue((e.Values[0], e.Values[1], e.Values[2]));
-            while (_accBuf.Count > RmsWindow) _accBuf.Dequeue();
+            _accBatchStartNs ??= e.Timestamp;
+            _accBuf.Add((e.Values[0], e.Values[1], e.Values[2], e.Timestamp));
+            if (e.Timestamp - _accBatchStartNs.Value >= AccelBatchWindowNs)
+            {
+                batch = _accBuf.ToArray();
+                _accBuf.Clear();
+                _accBatchStartNs = null;
+            }
         }
+
+        if (batch == null || batch.Length == 0) return;
+
+        ProcessAccelBatch(batch);
     }
 
-    private void OnAccelTick()
+    private void ProcessAccelBatch((double x, double y, double z, long timestampNs)[] samples)
     {
         try
         {
-            (double x, double y, double z)[] samples;
-            lock (_accBuf) { samples = _accBuf.ToArray(); }
-            if (samples.Length == 0) return;
+            var count = samples.Length;
+            if (count == 0) return;
 
-            var rmsX = Math.Sqrt(samples.Average(s => s.x * s.x));
-            var rmsY = Math.Sqrt(samples.Average(s => s.y * s.y));
-            var rmsZ = Math.Sqrt(samples.Average(s => s.z * s.z));
-            var last = samples[^1];
-            _lastRmsX = rmsX;
-            _lastRmsY = rmsY;
-            _lastRmsZ = rmsZ;
+            double sumX = 0;
+            double sumY = 0;
+            double sumZ = 0;
+            double sumA = 0;
+            var minX = double.PositiveInfinity;
+            var minY = double.PositiveInfinity;
+            var minZ = double.PositiveInfinity;
+            var minA = double.PositiveInfinity;
+            var maxX = double.NegativeInfinity;
+            var maxY = double.NegativeInfinity;
+            var maxZ = double.NegativeInfinity;
+            var maxA = double.NegativeInfinity;
+            var amplitudes = new double[count];
+
+            for (var i = 0; i < count; i++)
+            {
+                var (x, y, z, _) = samples[i];
+                var amplitude = Math.Sqrt((x * x) + (y * y) + (z * z));
+                amplitudes[i] = amplitude;
+
+                sumX += x;
+                sumY += y;
+                sumZ += z;
+                sumA += amplitude;
+
+                minX = Math.Min(minX, x);
+                minY = Math.Min(minY, y);
+                minZ = Math.Min(minZ, z);
+                minA = Math.Min(minA, amplitude);
+
+                maxX = Math.Max(maxX, x);
+                maxY = Math.Max(maxY, y);
+                maxZ = Math.Max(maxZ, z);
+                maxA = Math.Max(maxA, amplitude);
+            }
+
+            var meanX = sumX / count;
+            var meanY = sumY / count;
+            var meanZ = sumZ / count;
+            var meanA = sumA / count;
+            double varX = 0;
+            double varY = 0;
+            double varZ = 0;
+            double varA = 0;
+
+            for (var i = 0; i < count; i++)
+            {
+                var xDelta = samples[i].x - meanX;
+                var yDelta = samples[i].y - meanY;
+                var zDelta = samples[i].z - meanZ;
+                var aDelta = amplitudes[i] - meanA;
+
+                varX += xDelta * xDelta;
+                varY += yDelta * yDelta;
+                varZ += zDelta * zDelta;
+                varA += aDelta * aDelta;
+            }
+
+            varX /= count;
+            varY /= count;
+            varZ /= count;
+            varA /= count;
+
+            _lastMeanX = meanX;
+            _lastVarX = varX;
+            _lastMinX = minX;
+            _lastMaxX = maxX;
+            _lastMeanY = meanY;
+            _lastVarY = varY;
+            _lastMinY = minY;
+            _lastMaxY = maxY;
+            _lastMeanZ = meanZ;
+            _lastVarZ = varZ;
+            _lastMinZ = minZ;
+            _lastMaxZ = maxZ;
+            _lastMeanA = meanA;
+            _lastVarA = varA;
+            _lastMinA = minA;
+            _lastMaxA = maxA;
 
             LogStore.Append(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                rmsX, rmsY, rmsZ, last.x, last.y, last.z, "ACCEL", "", 0);
+                meanX, varX, minX, maxX,
+                meanY, varY, minY, maxY,
+                meanZ, varZ, minZ, maxZ,
+                meanA, varA, minA, maxA,
+                "ACCEL", "", 0);
 
-            LoggingState.ReportAccel(new AccelSample(rmsX, rmsY, rmsZ, DateTime.Now));
+            LoggingState.ReportAccel(new AccelSample(varX, varY, varZ, DateTime.Now));
         }
         catch (Exception ex)
         {
@@ -275,7 +358,12 @@ public class LoggingForegroundService : Service, ISensorEventListener
             var tsMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             foreach (var en in entries)
             {
-                LogStore.Append(tsMs, _lastRmsX, _lastRmsY, _lastRmsZ, 0, 0, 0, "WIFI", en.Bssid, en.Rssi);
+                LogStore.Append(tsMs,
+                    _lastMeanX, _lastVarX, _lastMinX, _lastMaxX,
+                    _lastMeanY, _lastVarY, _lastMinY, _lastMaxY,
+                    _lastMeanZ, _lastVarZ, _lastMinZ, _lastMaxZ,
+                    _lastMeanA, _lastVarA, _lastMinA, _lastMaxA,
+                    "WIFI", en.Bssid, en.Rssi);
             }
 
             LoggingState.ReportWifi(entries);

@@ -25,7 +25,7 @@ public static class LogStore
             CsvPath = Path.Combine(folder, $"forklift_{ts}.csv");
             try
             {
-                File.WriteAllText(CsvPath, "timestamp_ms,rms_x,rms_y,rms_z,raw_x,raw_y,raw_z,type,bssid,rssi\n");
+                File.WriteAllText(CsvPath, "timestamp_ms,mean_x,var_x,min_x,max_x,mean_y,var_y,min_y,max_y,mean_z,var_z,min_z,max_z,mean_a,var_a,min_a,max_a,type,bssid,rssi\n");
                 LogPathChanged?.Invoke(CsvPath);
             }
             catch
@@ -37,11 +37,15 @@ public static class LogStore
         }
     }
 
-    public static void Append(long tsMs, double rmsX, double rmsY, double rmsZ,
-        double rawX, double rawY, double rawZ, string type, string bssid, int rssi)
+    public static void Append(long tsMs,
+        double meanX, double varX, double minX, double maxX,
+        double meanY, double varY, double minY, double maxY,
+        double meanZ, double varZ, double minZ, double maxZ,
+        double meanA, double varA, double minA, double maxA,
+        string type, string bssid, int rssi)
     {
         EnsureInitialized();
-        var line = $"{tsMs},{rmsX:F4},{rmsY:F4},{rmsZ:F4},{rawX:F4},{rawY:F4},{rawZ:F4},{type},{bssid},{rssi}\n";
+        var line = $"{tsMs},{meanX:F4},{varX:F4},{minX:F4},{maxX:F4},{meanY:F4},{varY:F4},{minY:F4},{maxY:F4},{meanZ:F4},{varZ:F4},{minZ:F4},{maxZ:F4},{meanA:F4},{varA:F4},{minA:F4},{maxA:F4},{type},{bssid},{rssi}\n";
         try
         {
             lock (Sync)
@@ -75,7 +79,7 @@ public static class LogStore
 
             try
             {
-                File.WriteAllText(newPath, "timestamp_ms,rms_x,rms_y,rms_z,raw_x,raw_y,raw_z,type,bssid,rssi\n");
+                File.WriteAllText(newPath, "timestamp_ms,mean_x,var_x,min_x,max_x,mean_y,var_y,min_y,max_y,mean_z,var_z,min_z,max_z,mean_a,var_a,min_a,max_a,type,bssid,rssi\n");
                 CsvPath = newPath;
                 LogPathChanged?.Invoke(CsvPath);
                 Interlocked.Exchange(ref _logCount, 0);

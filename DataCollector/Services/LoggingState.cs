@@ -1,6 +1,6 @@
 namespace DataCollector;
 
-public readonly record struct AccelSample(double RmsX, double RmsY, double RmsZ, DateTime Timestamp);
+public readonly record struct AccelSample(double VarX, double VarY, double VarZ, DateTime Timestamp);
 
 public static class LoggingState
 {

@@ -87,9 +87,9 @@ public partial class MainPage : ContentPage
     {
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            LblX.Text = sample.RmsX.ToString("F3");
-            LblY.Text = sample.RmsY.ToString("F3");
-            LblZ.Text = sample.RmsZ.ToString("F3");
+            LblX.Text = sample.VarX.ToString("F3");
+            LblY.Text = sample.VarY.ToString("F3");
+            LblZ.Text = sample.VarZ.ToString("F3");
             LblAccelTime.Text = $"ostatni pomiar: {sample.Timestamp:HH:mm:ss}";
         });
     }
